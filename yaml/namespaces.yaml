@@ -1,0 +1,11 @@
+# Al principio del archivo monitoring.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+# Al principio del archivo monitoring.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: my-app-project

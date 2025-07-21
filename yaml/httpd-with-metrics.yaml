@@ -1,0 +1,155 @@
+# httpd-with-metrics.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-content
+  namespace: my-app-project
+data:
+  index.html: |
+    <html>
+    <head><title>K6 Moderate CPU Test</title></head>
+    <body>
+      <h1>Hello K6!</h1>
+      <p>Load test page working!</p>
+      <div id="result"></div>
+      <script>
+        // Versión "light" - no tan malévola
+        let result = 0;
+        
+        // Solo 100k iteraciones en lugar de 5M
+        for(let i = 0; i < 2; i++) {
+          result += Math.random() * Math.sin(i);
+        }
+        
+        // Solo 10 divs en lugar de 1000
+        for(let j = 0; j < 10; j++) {
+          let div = document.createElement('div');
+          div.innerHTML = `<span>CPU work ${j}: ${result.toFixed(2)}</span>`;
+          document.body.appendChild(div);
+        }
+      </script>
+    </body>
+    </html>
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apache-config
+  namespace: my-app-project
+data:
+  status.conf: |
+    LoadModule status_module modules/mod_status.so
+    <Location "/server-status">
+      SetHandler server-status
+      Require all granted
+    </Location>
+    ExtendedStatus On
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: httpd-simple-metrics
+  namespace: my-app-project
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: httpd-simple
+  template:
+    metadata:
+      labels:
+        app: httpd-simple
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9117"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: httpd
+        image: registry.redhat.io/ubi8/httpd-24:latest
+        ports:
+        - containerPort: 8080
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        volumeMounts:
+        - name: web-content
+          mountPath: /var/www/html
+        - name: apache-config
+          mountPath: /etc/httpd/conf.d/status.conf
+          subPath: status.conf
+        env:
+        - name: HTTPD_LISTEN_PORT
+          value: "8080"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 100Mi
+          limits:
+            cpu: 500m
+            memory: 100Mi
+            
+      - name: apache-exporter
+        image: lusotycoon/apache-exporter:v0.11.0
+        ports:
+        - containerPort: 9117
+        args:
+        - --scrape_uri=http://localhost:8080/server-status?auto
+        - --telemetry.address=0.0.0.0:9117
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 32Mi
+      volumes:
+      - name: web-content
+        configMap:
+          name: web-content
+      - name: apache-config
+        configMap:
+          name: apache-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: httpd-simple-service
+  namespace: my-app-project
+  labels:
+    app: httpd-simple
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  - port: 9117
+    targetPort: 9117
+    name: metrics
+  selector:
+    app: httpd-simple
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: httpd-simple-route
+  namespace: my-app-project
+spec:
+  to:
+    kind: Service
+    name: httpd-simple-service
+  port:
+    targetPort: 8080

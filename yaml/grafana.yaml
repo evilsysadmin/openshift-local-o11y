@@ -1,0 +1,560 @@
+# grafana-complete-setup.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: grafana       
+        image: grafana/grafana:latest
+        ports:
+        - containerPort: 3000
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          readOnlyRootFilesystem: false
+        resources:
+          requests:
+            cpu: 1024m
+            memory: 1Gi
+          limits:
+            cpu: 2048m
+            memory: 2Gi
+        env:
+        - name: GF_USERS_DEFAULT_TIMEZONE
+          value: "browser"
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: "admin"
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+        - name: GF_SERVER_HTTP_PORT
+          value: "3000"
+        - name: GF_PATHS_DATA
+          value: "/var/lib/grafana"
+        - name: GF_PATHS_LOGS
+          value: "/var/log/grafana"
+        - name: GF_PATHS_PLUGINS
+          value: "/var/lib/grafana/plugins"
+        - name: GF_PATHS_PROVISIONING
+          value: "/etc/grafana/provisioning"
+        volumeMounts:
+        - name: grafana-storage
+          mountPath: /var/lib/grafana
+        - name: grafana-config
+          mountPath: /etc/grafana/provisioning/datasources
+        - name: grafana-dashboard-provider
+          mountPath: /etc/grafana/provisioning/dashboards
+        - name: grafana-dashboards
+          mountPath: /var/lib/grafana/dashboards
+      volumes:
+      - name: grafana-storage
+        emptyDir: {}
+      - name: grafana-config
+        configMap:
+          name: grafana-datasources
+      - name: grafana-dashboard-provider
+        configMap:
+          name: grafana-dashboard-provider
+      - name: grafana-dashboards
+        configMap:
+          name: all-dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      url: http://prometheus:9090
+      access: proxy
+      isDefault: true
+      editable: true
+      timeout: 30
+      httpMethod: POST
+      jsonData:
+        httpMethod: GET
+        queryTimeout: 60s
+        timeInterval: 15s
+        exemplarTraceIdDestinations: []
+    - name: Loki
+      type: loki
+      url: http://loki:3100
+      access: proxy
+      editable: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: monitoring
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+    - name: 'default'
+      orgId: 1
+      folder: ''
+      type: file
+      disableDeletion: false
+      updateIntervalSeconds: 10
+      options:
+        path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: all-dashboards
+  namespace: monitoring
+data:
+  httpd-dashboard.json: |
+    {
+      "id": null,
+      "uid": "httpd-dashboard",
+      "title": "Apache Metrics Dashboard",
+      "tags": ["apache", "monitoring"],
+      "timezone": "browser",
+      "schemaVersion": 30,
+      "version": 1,
+      "panels": [
+        {
+          "id": 1,
+          "title": "Apache Up",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "apache_up",
+              "legendFormat": "Apache Status"
+            }
+          ],
+          "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0}
+        },
+        {
+          "id": 2,
+          "title": "Total Accesses",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "apache_accesses_total",
+              "legendFormat": "Total Accesses"
+            }
+          ],
+          "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0}
+        },
+        {
+          "id": 3,
+          "title": "Requests/sec",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "rate(apache_accesses_total[5m])",
+              "legendFormat": "Requests/sec"
+            }
+          ],
+          "gridPos": {"h": 6, "w": 6, "x": 12, "y": 0}
+        },
+        {
+          "id": 4,
+          "title": "CPU Load",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "apache_cpuload",
+              "legendFormat": "CPU Load %"
+            }
+          ],
+          "gridPos": {"h": 6, "w": 6, "x": 18, "y": 0}
+        },
+        {
+          "id": 5,
+          "title": "Apache Workers",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "apache_workers{state=\"busy\"}",
+              "legendFormat": "Busy Workers"
+            },
+            {
+              "expr": "apache_workers{state=\"idle\"}",
+              "legendFormat": "Idle Workers"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6}
+        },
+        {
+          "id": 6,
+          "title": "Apache Connections",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "apache_connections{state=\"total\"}",
+              "legendFormat": "Total Connections"
+            },
+            {
+              "expr": "apache_connections{state=\"writing\"}",
+              "legendFormat": "Writing"
+            },
+            {
+              "expr": "apache_connections{state=\"keepalive\"}",
+              "legendFormat": "Keep-Alive"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6}
+        },
+        {
+          "id": 7,
+          "title": "Request Rate",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "rate(apache_accesses_total[5m])",
+              "legendFormat": "Requests/sec"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14}
+        },
+        {
+          "id": 8,
+          "title": "Data Transfer",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "apache_sent_kilobytes_total * 1024",
+              "legendFormat": "Bytes Sent"
+            },
+            {
+              "expr": "rate(apache_sent_kilobytes_total[5m]) * 1024",
+              "legendFormat": "Bytes/sec"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14}
+        },
+        {
+          "id": 9,
+          "title": "Server Load",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "apache_load{interval=\"1min\"}",
+              "legendFormat": "Load 1min"
+            },
+            {
+              "expr": "apache_load{interval=\"5min\"}",
+              "legendFormat": "Load 5min"
+            },
+            {
+              "expr": "apache_load{interval=\"15min\"}",
+              "legendFormat": "Load 15min"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 22}
+        },
+        {
+          "id": 10,
+          "title": "Apache CPU Time",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "rate(apache_cpu_time_ms_total{type=\"user\"}[5m])",
+              "legendFormat": "User CPU"
+            },
+            {
+              "expr": "rate(apache_cpu_time_ms_total{type=\"system\"}[5m])",
+              "legendFormat": "System CPU"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 22}
+        },
+        {
+          "id": 11,
+          "title": "Apache CPU Load",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "apache_cpuload",
+              "legendFormat": "Apache CPU Load %"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 30}
+        },
+        {
+          "id": 12,
+          "title": "System Load Average",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "apache_load{interval=\"1min\"}",
+              "legendFormat": "Load 1min"
+            },
+            {
+              "expr": "apache_load{interval=\"5min\"}",
+              "legendFormat": "Load 5min"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 30}
+        },
+        {
+          "id": 13,
+          "title": "HPA Replicas",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "kube_deployment_status_replicas{namespace=\"my-app-project\",deployment=\"httpd-simple-metrics\"}",
+              "legendFormat": "Current Replicas"
+            }
+          ],
+          "gridPos": {"h": 6, "w": 12, "x": 0, "y": 38}
+        },
+        {
+          "id": 14,
+          "title": "HPA Status",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"my-app-project\"}",
+              "legendFormat": "Current"
+            },
+            {
+              "expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"my-app-project\"}",
+              "legendFormat": "Desired"
+            }
+          ],
+          "gridPos": {"h": 6, "w": 12, "x": 12, "y": 38}
+        },
+        {
+          "id": 15,
+          "title": "Pod Status",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "count(kube_pod_status_ready{namespace=\"my-app-project\",condition=\"true\"})",
+              "legendFormat": "Ready Pods"
+            }
+          ],
+          "gridPos": {"h": 6, "w": 12, "x": 0, "y": 44}
+        }
+      ],
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "refresh": "30s"
+    }
+  golden-metrics-dashboard.json: |
+    {
+      "id": null,
+      "uid": "golden-metrics-dashboard", 
+      "title": "Golden Metrics Dashboard",
+      "tags": ["golden", "metrics", "sre"],
+      "timezone": "browser",
+      "schemaVersion": 30,
+      "version": 1,
+      "panels": [
+        {
+          "id": 1,
+          "title": "Traffic - Pod Operations",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "sum(rate(kube_pod_container_status_restarts_total{namespace=\"my-app-project\"}[5m]))",
+              "legendFormat": "Pod Restarts/sec"
+            },
+            {
+              "expr": "sum(kube_deployment_status_replicas{namespace=\"my-app-project\"})",
+              "legendFormat": "Active Replicas"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "yAxes": [
+            {
+              "label": "operations/sec"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Latency - Pod Ready Time",
+          "type": "graph", 
+          "targets": [
+            {
+              "expr": "kube_pod_status_ready{namespace=\"my-app-project\",condition=\"true\"}",
+              "legendFormat": "{{pod}} Ready"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "yAxes": [
+            {
+              "label": "ready status"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Errors - Pod & HTTP Errors",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "kube_pod_container_status_restarts_total{namespace=\"my-app-project\"}",
+              "legendFormat": "{{pod}} Restarts"
+            },
+            {
+              "expr": "kube_pod_status_phase{namespace=\"my-app-project\",phase!=\"Running\"}",
+              "legendFormat": "Non-Running Pods"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "yAxes": [
+            {
+              "label": "count",
+              "min": 0
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Saturation - Resource Usage",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "kube_pod_container_resource_requests{resource=\"cpu\",namespace=\"my-app-project\"}",
+              "legendFormat": "{{pod}} CPU Requests"
+            },
+            {
+              "expr": "kube_pod_container_resource_requests{resource=\"memory\",namespace=\"my-app-project\"} / 1024 / 1024",
+              "legendFormat": "{{pod}} Memory Requests (MB)"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "yAxes": [
+            {
+              "label": "resources"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "title": "Pod Scaling (HPA)",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "kube_deployment_status_replicas{deployment=\"httpd-simple-metrics\",namespace=\"my-app-project\"}",
+              "legendFormat": "Current Replicas"
+            },
+            {
+              "expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"my-app-project\"}",
+              "legendFormat": "Desired Replicas"
+            },
+            {
+              "expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"my-app-project\"}",
+              "legendFormat": "Max Replicas"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+          "yAxes": [
+            {
+              "label": "pod count",
+              "min": 0
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "title": "Pod Status Distribution",
+          "type": "graph",
+          "targets": [
+            {
+              "expr": "kube_pod_status_phase{namespace=\"my-app-project\",phase=\"Running\"}",
+              "legendFormat": "Running"
+            },
+            {
+              "expr": "kube_pod_status_phase{namespace=\"my-app-project\",phase=\"Pending\"}",
+              "legendFormat": "Pending"
+            },
+            {
+              "expr": "kube_pod_status_phase{namespace=\"my-app-project\",phase=\"Failed\"}",
+              "legendFormat": "Failed"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+          "yAxes": [
+            {
+              "label": "pod count"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "title": "SRE Golden Signals Summary",
+          "type": "stat",
+          "targets": [
+            {
+              "expr": "sum(kube_deployment_status_replicas{namespace=\"my-app-project\"})",
+              "legendFormat": "Traffic (Replicas)"
+            },
+            {
+              "expr": "sum(kube_pod_status_ready{namespace=\"my-app-project\",condition=\"true\"})",
+              "legendFormat": "Latency (Ready Pods)"
+            },
+            {
+              "expr": "sum(kube_pod_status_phase{namespace=\"my-app-project\",phase!=\"Running\"})",
+              "legendFormat": "Errors (Non-Running)"
+            },
+            {
+              "expr": "sum(kube_pod_container_resource_requests{resource=\"cpu\",namespace=\"my-app-project\"})",
+              "legendFormat": "Saturation (CPU Requests)"
+            }
+          ],
+          "gridPos": {"h": 6, "w": 24, "x": 0, "y": 24}
+        }
+      ],
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "refresh": "30s"
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  selector:
+    app: grafana
+  ports:
+  - port: 3000
+    targetPort: 3000
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  to:
+    kind: Service
+    name: grafana
+  port:
+    targetPort: 3000

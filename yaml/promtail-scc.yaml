@@ -1,0 +1,19 @@
+# promtail-scc.yaml
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: promtail-scc
+allowHostDirVolumePlugin: true
+allowPrivilegedContainer: false
+allowHostNetwork: false
+allowHostPorts: false
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: RunAsAny
+volumes:
+  - hostPath
+  - configMap
+  - emptyDir
+  - secret
+users: []

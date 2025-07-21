@@ -1,0 +1,20 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: time-sync
+  namespace: kube-system
+spec:
+  schedule: "*/3 * * * *"  # Every 15 minutes
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          hostNetwork: true
+          hostPID: true
+          containers:
+          - name: time-sync
+            image: registry.redhat.io/ubi8/ubi:latest
+            command: ["nsenter", "--target", "1", "--mount", "--", "systemctl", "restart", "chronyd"]
+            securityContext:
+              privileged: true
+          restartPolicy: OnFailure
